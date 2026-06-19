@@ -1,0 +1,16 @@
+{
+  "name": "오늘의 평가 요약",
+  "short_name": "주식평가",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f8f9fa",
+  "theme_color": "#e8f4f8",
+  "icons": [
+    {
+      "src": "exp.png",
+      "sizes": "192x192 512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
