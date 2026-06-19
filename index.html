@@ -2,8 +2,17 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>오늘의 평가 요약표</title>
+    
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" href="icon.ico" type="image/x-icon">
+    <link rel="apple-touch-icon" href="exp.png">
+    <meta name="theme-color" content="#e8f4f8">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="주식평가">
+
     <style>
         body {
             margin: 0;
@@ -50,10 +59,18 @@
     <div id="result-container" class="evaluation-panel"></div>
 
     <script>
+        // PWA 서비스 워커 등록
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js').catch(err => {
+                    console.log('Service Worker 등록 실패: ', err);
+                });
+            });
+        }
+
         const FIXED_PERIOD = 1500;
         const TICKERS = ['USDKRW=X', 'SOXL', 'TECL', 'TQQQ'];
         
-        // 메인 실행 함수
         async function runAnalysis() {
             try {
                 const results = {};
@@ -66,11 +83,9 @@
                     latestDateStr = data.dates[data.dates.length - 1];
 
                     if (ticker === 'USDKRW=X') {
-                        // 환율은 최적화 적용
                         const bestPeriod = findOptimizedPeriod(data);
                         results[ticker] = analyzeData(data, bestPeriod, true);
                     } else {
-                        // 나머지는 1500일 고정
                         results[ticker] = analyzeData(data, FIXED_PERIOD, false);
                     }
                 }
@@ -83,7 +98,6 @@
             }
         }
 
-        // 야후 파이낸스 데이터 패치
         async function fetchNewData(ticker) {
             const currentUnixTime = Math.floor(Date.now() / 1000); 
             const targetUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?period1=0&period2=${currentUnixTime}&interval=1d`;
@@ -126,7 +140,6 @@
                 prices.push(currentPrice);
             }
 
-            // 물림일(Mulrim) 사전 계산
             const N = prices.length;
             let rawMulrimData = new Array(N).fill(0);
             let maxMulrim = 0;
@@ -143,10 +156,9 @@
             return { dates, prices, rawMulrimData, maxMulrim };
         }
 
-        // 최적화된 기간(Period) 찾기
         function findOptimizedPeriod(data) {
             const maxTestPeriod = Math.min(3000, data.prices.length - data.maxMulrim - 30);
-            if (maxTestPeriod < 1) return 1500; // 데이터 부족 시 기본값
+            if (maxTestPeriod < 1) return 1500; 
 
             let maxR2 = -1;
             let bestPeriod = 1500;
@@ -161,7 +173,6 @@
             return bestPeriod;
         }
 
-        // R² 계산 (최적화용)
         function calculateR2(data, period) {
             const N = data.prices.length;
             let validX = [], validY = [], sum = 0;
@@ -204,7 +215,6 @@
             return { rSquared: 0, slope: 0, intercept: 0 };
         }
 
-        // 최종 지표 분석 (단일 종목)
         function analyzeData(data, period, isOptimized) {
             const N = data.prices.length;
             const latestPrice = data.prices[N - 1];
@@ -221,7 +231,6 @@
             const upperMult = 3.0;
             const lowerMult = 0.5;
 
-            // 이동평균 및 이격도 계산
             for (let i = 0; i < N; i++) {
                 const currentPrice = data.prices[i];
                 windowPrices.push(currentPrice);
@@ -251,12 +260,10 @@
             const latestDisparity = validDisparities[validDisparities.length - 1];
             const avgDisparity = validDisparities.reduce((a, b) => a + b, 0) / validDisparities.length;
 
-            // 위험도 산정을 위한 최소/최대 이격도 계산
             let maxDisp = Math.max(...validDisparities, 1.0, avgDisparity, ...upperBBDisparityData);
             let minDisp = Math.min(...validDisparities, 1.0, avgDisparity, ...lowerBBDisparityData);
             let riskLevel = maxDisp > minDisp ? ((latestDisparity - minDisp) / (maxDisp - minDisp)) * 100 : 0;
 
-            // 회귀분석 기반 예상 물림일수 산출
             const regStats = calculateR2(data, period);
             let expectedMulrim = Math.max(0, Math.round(regStats.slope * latestDisparity + regStats.intercept)) || 0;
 
@@ -273,7 +280,6 @@
             };
         }
 
-        // 결과 화면에 렌더링
         function renderResult(res, dateStr) {
             document.getElementById('loading').style.display = 'none';
             const container = document.getElementById('result-container');
@@ -303,9 +309,7 @@
             container.innerHTML = html;
         }
 
-        // 스크립트 로드 시 즉시 실행
         window.onload = runAnalysis;
-
     </script>
 </body>
 </html>
