@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>오늘의 평가 요약표</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background-color: #f8f9fa;
+            font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
+            display: flex;
+            justify-content: center;
+        }
+        .evaluation-panel {
+            background-color: #e8f4f8;
+            border: 1px solid #bce8f1;
+            color: #31708f;
+            padding: 25px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+            line-height: 1.8;
+            word-break: keep-all;
+            max-width: 800px;
+            width: 100%;
+        }
+        .eval-highlight {
+            color: #e74c3c;
+            margin: 0 2px;
+        }
+        #loading {
+            font-size: 16px;
+            color: #3498db;
+            font-weight: bold;
+            text-align: center;
+            margin-top: 50px;
+        }
+        #result-container {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="loading">데이터를 불러오고 최적화 시뮬레이션을 진행 중입니다...<br><span style="font-size:13px; color:#7f8c8d;">(약 5~10초 소요될 수 있습니다)</span></div>
+    
+    <div id="result-container" class="evaluation-panel"></div>
+
+    <script>
+        const FIXED_PERIOD = 1500;
+        const TICKERS = ['USDKRW=X', 'SOXL', 'TECL', 'TQQQ'];
+        
+        // 메인 실행 함수
+        async function runAnalysis() {
+            try {
+                const results = {};
+                let latestDateStr = '';
+
+                for (let ticker of TICKERS) {
+                    const data = await fetchNewData(ticker);
+                    if (!data) throw new Error(`${ticker} 데이터를 가져오지 못했습니다.`);
+                    
+                    latestDateStr = data.dates[data.dates.length - 1];
+
+                    if (ticker === 'USDKRW=X') {
+                        // 환율은 최적화 적용
+                        const bestPeriod = findOptimizedPeriod(data);
+                        results[ticker] = analyzeData(data, bestPeriod, true);
+                    } else {
+                        // 나머지는 1500일 고정
+                        results[ticker] = analyzeData(data, FIXED_PERIOD, false);
+                    }
+                }
+
+                renderResult(results, latestDateStr);
+                
+            } catch (error) {
+                console.error(error);
+                document.getElementById('loading').innerHTML = `<span style="color:#e74c3c;">오류 발생: 데이터 통신에 실패했습니다.<br>잠시 후 다시 새로고침 해주세요.</span>`;
+            }
+        }
+
+        // 야후 파이낸스 데이터 패치
+        async function fetchNewData(ticker) {
+            const currentUnixTime = Math.floor(Date.now() / 1000); 
+            const targetUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?period1=0&period2=${currentUnixTime}&interval=1d`;
+
+            const proxyList = [
+                `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
+                `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`,
+                `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`
+            ];
+
+            let dataFetched = null;
+            for (let proxy of proxyList) {
+                try {
+                    const response = await fetch(proxy, { method: 'GET', headers: { 'Accept': 'application/json' }});
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data && data.chart && data.chart.result) {
+                            dataFetched = data;
+                            break; 
+                        }
+                    }
+                } catch (e) { console.warn(`Proxy fail for ${ticker}:`, e); }
+            }
+
+            if (!dataFetched) return null;
+
+            const result = dataFetched.chart.result[0];
+            const timestamps = result.timestamp;
+            const priceDataArray = result.indicators.adjclose ? result.indicators.adjclose[0].adjclose : result.indicators.quote[0].close;
+
+            let dates = [];
+            let prices = [];
+
+            for (let i = 0; i < timestamps.length; i++) {
+                const currentPrice = priceDataArray[i];
+                if (!currentPrice || currentPrice <= 0 || !Number.isFinite(currentPrice)) continue;
+
+                const dateObj = new Date(timestamps[i] * 1000);
+                dates.push(dateObj.toISOString().split('T')[0]);
+                prices.push(currentPrice);
+            }
+
+            // 물림일(Mulrim) 사전 계산
+            const N = prices.length;
+            let rawMulrimData = new Array(N).fill(0);
+            let maxMulrim = 0;
+            for (let i = 0; i < N; i++) {
+                let count = 0;
+                let currentPrice = prices[i];
+                for (let j = i + 1; j < N; j++) {
+                    if (prices[j] < currentPrice) count++;
+                }
+                rawMulrimData[i] = count;
+                if (count > maxMulrim) maxMulrim = count;
+            }
+
+            return { dates, prices, rawMulrimData, maxMulrim };
+        }
+
+        // 최적화된 기간(Period) 찾기
+        function findOptimizedPeriod(data) {
+            const maxTestPeriod = Math.min(3000, data.prices.length - data.maxMulrim - 30);
+            if (maxTestPeriod < 1) return 1500; // 데이터 부족 시 기본값
+
+            let maxR2 = -1;
+            let bestPeriod = 1500;
+
+            for (let p = 1; p <= maxTestPeriod; p += 1) {
+                let r2 = calculateR2(data, p).rSquared;
+                if (r2 > maxR2) {
+                    maxR2 = r2;
+                    bestPeriod = p;
+                }
+            }
+            return bestPeriod;
+        }
+
+        // R² 계산 (최적화용)
+        function calculateR2(data, period) {
+            const N = data.prices.length;
+            let validX = [], validY = [], sum = 0;
+            
+            for (let i = 0; i < N; i++) {
+                let price = data.prices[i];
+                sum += price;
+                if (i >= period) sum -= data.prices[i - period];
+                if (i >= period - 1) {
+                    let avg = sum / period;
+                    if (avg > 0) {
+                        let disparity = price / avg;
+                        if ((N - 1) - i >= data.maxMulrim && Number.isFinite(disparity)) {
+                            validX.push(disparity); 
+                            validY.push(data.rawMulrimData[i]);
+                        }
+                    }
+                }
+            }
+            
+            if (validX.length < 30) return { rSquared: 0, slope: 0, intercept: 0 }; 
+
+            let sumX = 0, sumY = 0;
+            for (let i = 0; i < validX.length; i++) { sumX += validX[i]; sumY += validY[i]; }
+            let meanX = sumX / validX.length, meanY = sumY / validY.length;
+            
+            let covXY = 0, varX = 0, varY = 0;
+            for (let i = 0; i < validX.length; i++) {
+                let dx = validX[i] - meanX, dy = validY[i] - meanY;
+                covXY += dx * dy; varX += dx * dx; varY += dy * dy;
+            }
+            
+            if (varX > 0 && varY > 0) {
+                return {
+                    rSquared: (covXY / Math.sqrt(varX * varY)) ** 2,
+                    slope: covXY / varX,
+                    intercept: meanY - (covXY / varX) * meanX
+                };
+            }
+            return { rSquared: 0, slope: 0, intercept: 0 };
+        }
+
+        // 최종 지표 분석 (단일 종목)
+        function analyzeData(data, period, isOptimized) {
+            const N = data.prices.length;
+            const latestPrice = data.prices[N - 1];
+
+            if (N < period) {
+                return { latestPrice, error: '상장 기간 부족' };
+            }
+
+            let validDisparities = [];
+            let upperBBDisparityData = [];
+            let lowerBBDisparityData = [];
+            let windowPrices = [];
+
+            const upperMult = 3.0;
+            const lowerMult = 0.5;
+
+            // 이동평균 및 이격도 계산
+            for (let i = 0; i < N; i++) {
+                const currentPrice = data.prices[i];
+                windowPrices.push(currentPrice);
+
+                if (windowPrices.length > period) windowPrices.shift();
+
+                if (windowPrices.length === period) {
+                    const sum = windowPrices.reduce((a, b) => a + b, 0);
+                    const average = sum / period;
+                    
+                    let sqSum = 0;
+                    for (let j = 0; j < period; j++) sqSum += Math.pow(windowPrices[j] - average, 2);
+                    const stdDev = Math.sqrt(sqSum / period);
+
+                    if (average > 0) {
+                        const disparity = currentPrice / average; 
+                        validDisparities.push(disparity);
+
+                        const upperBB = average + (upperMult * stdDev);
+                        const lowerBB = Math.max(average - (lowerMult * stdDev), 0.0001);
+                        upperBBDisparityData.push(upperBB / average);
+                        lowerBBDisparityData.push(lowerBB / average);
+                    }
+                }
+            }
+
+            const latestDisparity = validDisparities[validDisparities.length - 1];
+            const avgDisparity = validDisparities.reduce((a, b) => a + b, 0) / validDisparities.length;
+
+            // 위험도 산정을 위한 최소/최대 이격도 계산
+            let maxDisp = Math.max(...validDisparities, 1.0, avgDisparity, ...upperBBDisparityData);
+            let minDisp = Math.min(...validDisparities, 1.0, avgDisparity, ...lowerBBDisparityData);
+            let riskLevel = maxDisp > minDisp ? ((latestDisparity - minDisp) / (maxDisp - minDisp)) * 100 : 0;
+
+            // 회귀분석 기반 예상 물림일수 산출
+            const regStats = calculateR2(data, period);
+            let expectedMulrim = Math.max(0, Math.round(regStats.slope * latestDisparity + regStats.intercept)) || 0;
+
+            return {
+                latestPrice: latestPrice,
+                period: period,
+                isOptimized: isOptimized,
+                disparity: latestDisparity,
+                avgDisparity: avgDisparity,
+                riskLevel: riskLevel,
+                expectedMulrim: expectedMulrim,
+                rSquared: regStats.rSquared,
+                error: null
+            };
+        }
+
+        // 결과 화면에 렌더링
+        function renderResult(res, dateStr) {
+            document.getElementById('loading').style.display = 'none';
+            const container = document.getElementById('result-container');
+            container.style.display = 'block';
+
+            const krwPeriod = res['USDKRW=X'].period;
+            const krwP = res['USDKRW=X'].latestPrice.toFixed(2);
+            const soxlP = res['SOXL'].latestPrice.toFixed(2);
+            const teclP = res['TECL'].latestPrice.toFixed(2);
+            const tqqqP = res['TQQQ'].latestPrice.toFixed(2);
+
+            let html = `1500일 이격도 기반 오늘의 평가 (${dateStr}) (단, 환율은 <span class="eval-highlight">${krwPeriod}</span>일(최적화) 이격도)<br>`;
+            html += `<span style="color:#555;">현재 환율: ${krwP}원 | SOXL: ${soxlP} | TECL: ${teclP} | TQQQ: ${tqqqP}</span><br><br>`;
+
+            const renderLine = (name, data) => {
+                if (data.error) return `${name} : <span style="color:#7f8c8d;">${data.error}</span><br>`;
+                return `${name} 이격도 : <span class="eval-highlight">${data.disparity.toFixed(2)}</span> (평균: ${data.avgDisparity.toFixed(2)}) | ` +
+                       `위험도 : <span class="eval-highlight">${data.riskLevel.toFixed(1)}%</span> | ` +
+                       `예상 물림일 : <span class="eval-highlight">${data.expectedMulrim}일</span> (R²=${data.rSquared.toFixed(4)})<br>`;
+            };
+
+            html += renderLine('환율', res['USDKRW=X']);
+            html += renderLine('SOXL', res['SOXL']);
+            html += renderLine('TECL', res['TECL']);
+            html += renderLine('TQQQ', res['TQQQ']);
+
+            container.innerHTML = html;
+        }
+
+        // 스크립트 로드 시 즉시 실행
+        window.onload = runAnalysis;
+
+    </script>
+</body>
+</html>
