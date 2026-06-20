@@ -1,6 +1,6 @@
 {
-  "name": "오늘의 평가 요약",
-  "short_name": "주식평가",
+  "name": "오늘시황",
+  "short_name": "오늘시황",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#f8f9fa",
