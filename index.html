@@ -224,13 +224,9 @@
             }
 
             let validDisparities = [];
-            let upperBBDisparityData = [];
-            let lowerBBDisparityData = [];
             let windowPrices = [];
 
-            const upperMult = 3.0;
-            const lowerMult = 0.5;
-
+            // 이동평균 및 이격도 계산
             for (let i = 0; i < N; i++) {
                 const currentPrice = data.prices[i];
                 windowPrices.push(currentPrice);
@@ -240,30 +236,34 @@
                 if (windowPrices.length === period) {
                     const sum = windowPrices.reduce((a, b) => a + b, 0);
                     const average = sum / period;
-                    
-                    let sqSum = 0;
-                    for (let j = 0; j < period; j++) sqSum += Math.pow(windowPrices[j] - average, 2);
-                    const stdDev = Math.sqrt(sqSum / period);
 
                     if (average > 0) {
                         const disparity = currentPrice / average; 
                         validDisparities.push(disparity);
-
-                        const upperBB = average + (upperMult * stdDev);
-                        const lowerBB = Math.max(average - (lowerMult * stdDev), 0.0001);
-                        upperBBDisparityData.push(upperBB / average);
-                        lowerBBDisparityData.push(lowerBB / average);
                     }
                 }
             }
 
             const latestDisparity = validDisparities[validDisparities.length - 1];
+            
+            // 이격도 평균 산출
             const avgDisparity = validDisparities.reduce((a, b) => a + b, 0) / validDisparities.length;
 
-            let maxDisp = Math.max(...validDisparities, 1.0, avgDisparity, ...upperBBDisparityData);
-            let minDisp = Math.min(...validDisparities, 1.0, avgDisparity, ...lowerBBDisparityData);
-            let riskLevel = maxDisp > minDisp ? ((latestDisparity - minDisp) / (maxDisp - minDisp)) * 100 : 0;
+            // 이격도 표준편차 산출
+            let sqSumDisp = 0;
+            for (let i = 0; i < validDisparities.length; i++) {
+                sqSumDisp += Math.pow(validDisparities[i] - avgDisparity, 2);
+            }
+            const stdDevDisparity = Math.sqrt(sqSumDisp / validDisparities.length);
 
+            // 99% 신뢰구간 기반 위험도 계산 (평균 50%, 상/하단 Z-score 2.576 기준)
+            const zScore99 = 2.576;
+            let rawRiskLevel = 50 + 50 * ((latestDisparity - avgDisparity) / (zScore99 * stdDevDisparity));
+            
+            // 위험도를 0% ~ 100% 사이로 고정
+            let riskLevel = Math.max(0, Math.min(100, rawRiskLevel));
+
+            // 회귀분석 기반 예상 물림일수 산출
             const regStats = calculateR2(data, period);
             let expectedMulrim = Math.max(0, Math.round(regStats.slope * latestDisparity + regStats.intercept)) || 0;
 
