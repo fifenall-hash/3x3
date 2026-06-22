@@ -69,7 +69,8 @@
         }
 
         const FIXED_PERIOD = 1500;
-        const TICKERS = ['USDKRW=X', 'SOXL', 'TECL', 'TQQQ'];
+        // SK하이닉스(000660.KS) 티커 추가
+        const TICKERS = ['USDKRW=X', 'SOXL', 'TECL', 'TQQQ', '000660.KS'];
         
         async function runAnalysis() {
             try {
@@ -226,7 +227,6 @@
             let validDisparities = [];
             let windowPrices = [];
 
-            // 이동평균 및 이격도 계산
             for (let i = 0; i < N; i++) {
                 const currentPrice = data.prices[i];
                 windowPrices.push(currentPrice);
@@ -246,24 +246,19 @@
 
             const latestDisparity = validDisparities[validDisparities.length - 1];
             
-            // 이격도 평균 산출
             const avgDisparity = validDisparities.reduce((a, b) => a + b, 0) / validDisparities.length;
 
-            // 이격도 표준편차 산출
             let sqSumDisp = 0;
             for (let i = 0; i < validDisparities.length; i++) {
                 sqSumDisp += Math.pow(validDisparities[i] - avgDisparity, 2);
             }
             const stdDevDisparity = Math.sqrt(sqSumDisp / validDisparities.length);
 
-            // 99% 신뢰구간 기반 위험도 계산 (평균 50%, 상/하단 Z-score 2.576 기준)
             const zScore99 = 2.576;
             let rawRiskLevel = 50 + 50 * ((latestDisparity - avgDisparity) / (zScore99 * stdDevDisparity));
             
-            // 위험도를 0% ~ 100% 사이로 고정
             let riskLevel = Math.max(0, Math.min(100, rawRiskLevel));
 
-            // 회귀분석 기반 예상 물림일수 산출
             const regStats = calculateR2(data, period);
             let expectedMulrim = Math.max(0, Math.round(regStats.slope * latestDisparity + regStats.intercept)) || 0;
 
@@ -290,9 +285,11 @@
             const soxlP = res['SOXL'].latestPrice.toFixed(2);
             const teclP = res['TECL'].latestPrice.toFixed(2);
             const tqqqP = res['TQQQ'].latestPrice.toFixed(2);
+            // 한국 주식 가격 포맷 (쉼표 추가 및 소수점 제거)
+            const skhP = res['000660.KS'].latestPrice.toLocaleString('ko-KR');
 
             let html = `1500일 이격도 기반 오늘의 평가 (${dateStr}) (단, 환율은 <span class="eval-highlight">${krwPeriod}</span>일(최적화) 이격도)<br>`;
-            html += `<span style="color:#555;">현재 환율: ${krwP}원 | SOXL: ${soxlP} | TECL: ${teclP} | TQQQ: ${tqqqP}</span><br><br>`;
+            html += `<span style="color:#555; font-size:14px;">현재 환율: ${krwP}원 | SOXL: ${soxlP} | TECL: ${teclP} | TQQQ: ${tqqqP} | SK하이닉스: ${skhP}원</span><br><br>`;
 
             const renderLine = (name, data) => {
                 if (data.error) return `${name} : <span style="color:#7f8c8d;">${data.error}</span><br>`;
@@ -305,6 +302,7 @@
             html += renderLine('SOXL', res['SOXL']);
             html += renderLine('TECL', res['TECL']);
             html += renderLine('TQQQ', res['TQQQ']);
+            html += renderLine('SK하이닉스', res['000660.KS']); // SK하이닉스 렌더링 추가
 
             container.innerHTML = html;
         }
