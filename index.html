@@ -59,7 +59,7 @@
     <div id="result-container" class="evaluation-panel"></div>
 
     <script>
-        // PWA 서비스 워커 등록
+        // PWA 서비스 워커 등록 (설치형 앱 지원, 캐시는 sw.js에서 무효화함)
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('./sw.js').catch(err => {
@@ -69,7 +69,6 @@
         }
 
         const FIXED_PERIOD = 1500;
-        // SK하이닉스(000660.KS) 티커 추가
         const TICKERS = ['USDKRW=X', 'SOXL', 'TECL', 'TQQQ', '000660.KS'];
         
         async function runAnalysis() {
@@ -280,18 +279,21 @@
             const container = document.getElementById('result-container');
             container.style.display = 'block';
 
-            const krwPeriod = res['USDKRW=X'].period;
-            const krwP = res['USDKRW=X'].latestPrice.toFixed(2);
-            const soxlP = res['SOXL'].latestPrice.toFixed(2);
-            const teclP = res['TECL'].latestPrice.toFixed(2);
-            const tqqqP = res['TQQQ'].latestPrice.toFixed(2);
-            // 한국 주식 가격 포맷 (쉼표 추가 및 소수점 제거)
-            const skhP = res['000660.KS'].latestPrice.toLocaleString('ko-KR');
+            const krwPeriod = res['USDKRW=X']?.period || '-';
+            const krwP = res['USDKRW=X']?.latestPrice ? res['USDKRW=X'].latestPrice.toFixed(2) : '-';
+            const soxlP = res['SOXL']?.latestPrice ? res['SOXL'].latestPrice.toFixed(2) : '-';
+            const teclP = res['TECL']?.latestPrice ? res['TECL'].latestPrice.toFixed(2) : '-';
+            const tqqqP = res['TQQQ']?.latestPrice ? res['TQQQ'].latestPrice.toFixed(2) : '-';
+            
+            const skhP = (res['000660.KS'] && res['000660.KS'].latestPrice) 
+                ? res['000660.KS'].latestPrice.toLocaleString('ko-KR') 
+                : '데이터 없음';
 
             let html = `1500일 이격도 기반 오늘의 평가 (${dateStr}) (단, 환율은 <span class="eval-highlight">${krwPeriod}</span>일(최적화) 이격도)<br>`;
             html += `<span style="color:#555; font-size:14px;">현재 환율: ${krwP}원 | SOXL: ${soxlP} | TECL: ${teclP} | TQQQ: ${tqqqP} | SK하이닉스: ${skhP}원</span><br><br>`;
 
             const renderLine = (name, data) => {
+                if (!data) return `${name} : <span style="color:#7f8c8d;">데이터 로드 실패</span><br>`;
                 if (data.error) return `${name} : <span style="color:#7f8c8d;">${data.error}</span><br>`;
                 return `${name} 이격도 : <span class="eval-highlight">${data.disparity.toFixed(2)}</span> (평균: ${data.avgDisparity.toFixed(2)}) | ` +
                        `위험도 : <span class="eval-highlight">${data.riskLevel.toFixed(1)}%</span> | ` +
@@ -302,7 +304,7 @@
             html += renderLine('SOXL', res['SOXL']);
             html += renderLine('TECL', res['TECL']);
             html += renderLine('TQQQ', res['TQQQ']);
-            html += renderLine('SK하이닉스', res['000660.KS']); // SK하이닉스 렌더링 추가
+            html += renderLine('SK하이닉스', res['000660.KS']);
 
             container.innerHTML = html;
         }
