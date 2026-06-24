@@ -1,28 +1,16 @@
-const CACHE_NAME = 'stock-eval-v1';
-const urlsToCache = [
-  './',
-  './index.html',
-  './manifest.json',
-  './exp.png',
-  './icon.ico'
-];
+// sw.js
 
-// 설치 단계: 필요한 파일들을 로컬 캐시에 저장합니다.
-self.addEventListener('install', event => {
-  event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(cache => {
-        return cache.addAll(urlsToCache);
-      })
-  );
+// 1. 서비스 워커 설치 시 즉시 활성화
+self.addEventListener('install', (event) => {
+    self.skipWaiting();
 });
 
-// 패치 단계: 네트워크가 끊겼을 때 로컬 캐시에서 파일을 불러옵니다.
-self.addEventListener('fetch', event => {
-  event.respondWith(
-    caches.match(event.request)
-      .then(response => {
-        return response || fetch(event.request);
-      })
-  );
+// 2. 활성화 시 즉시 클라이언트 제어 시작
+self.addEventListener('activate', (event) => {
+    event.waitUntil(self.clients.claim());
+});
+
+// 3. (핵심) 오프라인 캐시를 하지 않고 무조건 최신 데이터를 가져옴
+self.addEventListener('fetch', (event) => {
+    event.respondWith(fetch(event.request));
 });
